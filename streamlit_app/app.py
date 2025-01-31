@@ -41,7 +41,7 @@ def load_index(index_name):
 
 
 # Check if default model exists
-default_model = "meta-llama/Llama-2-7b-chat-hf"
+default_model = "Qwen/Qwen1.5-3B-Chat"
 models = vllm_manager.list_models()
 model_names = [model["name"] for model in models]
 
