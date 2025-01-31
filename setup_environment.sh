@@ -89,6 +89,14 @@ if [ "$flag_install_chromium" = true ]; then
 fi
 
 ###
+### Install vLLM and dependencies
+###
+
+log "Installing vLLM and its dependencies..."
+sudo apt-get update
+sudo apt-get install -y python3-pip
+pip3 install vllm transformers accelerate
+
 ### Docker install and setup
 ### 
 

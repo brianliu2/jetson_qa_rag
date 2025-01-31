@@ -1,42 +1,58 @@
-import ollama
 import streamlit as st
 import pandas as pd
-
 import time
 import os
-
 import logging
 import sys
-logging.basicConfig(stream=sys.stdout, level=logging.INFO)
-# logging.getLogger().addHandler(logging.StreamHandler(stream=sys.stdout))
+from typing import Dict, Any
+from tqdm import tqdm
 
-parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+logging.basicConfig(stream=sys.stdout, level=logging.INFO)
+
+parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, parent_dir)
-import utils.func 
+import utils.func
 import utils.constants as const
+from utils.vllm_manager import VLLMManager
+
+# Initialize vLLM manager
+vllm_manager = VLLMManager()
 
 # App title
 st.set_page_config(page_title="Jetson Copilot - Download Model", menu_items=None)
 
 st.subheader("List of Models Already Downloaded")
-with st.spinner('Checking existing models hosted on Ollama...'):
-    models = ollama.list()["models"]
+with st.spinner("Checking existing models..."):
+    models = vllm_manager.list_models()
     models_data = []
     for model in models:
-        models_data.append((
-            model['name'],
-            model['size'] / 1024 / 1024,
-            model['details']['format'],
-            model['details']['family'],
-            model['details']['parameter_size'],
-            model['details']['quantization_level']
-        ))
+        # Get model size in MiB
+        model_path = model["path"]
+        size = sum(
+            os.path.getsize(os.path.join(dirpath, filename))
+            for dirpath, dirnames, filenames in os.walk(model_path)
+            for filename in filenames
+        ) / (1024 * 1024)
+
+        models_data.append(
+            (
+                model["name"],
+                size,
+                "HuggingFace",  # Format is always HuggingFace for vLLM
+                "Unknown",  # Family info not directly available
+                "Unknown",  # Parameter size not directly available
+                "Original",  # No quantization by default
+            )
+        )
+
     logging.info(f"{len(models)} models found!")
-    df = pd.DataFrame(models_data, columns=[
-        'Name', 'Size(MiB)', 'Format', 'Family', 'Parameter', 'Quantization'
-    ])
+    df = pd.DataFrame(
+        models_data,
+        columns=["Name", "Size(MiB)", "Format", "Family", "Parameter", "Quantization"],
+    )
     if len(models) != 0:
-        st.dataframe(df.style.format({'Size(MiB)' : "{:,.1f}"}))
+        st.dataframe(df.style.format({"Size(MiB)": "{:,.1f}"}))
+
 
 def on_newmodel_name_change():
     logging.info("on_newmodel_name_change()")
@@ -48,48 +64,42 @@ def on_newmodel_name_change():
         logging.info("Name NOT supplied")
         st.session_state.download_model_disabled = True
 
+
 def download_model():
     logging.info("download_model()")
     newmodel_name = st.session_state.my_newmodel_name
     with container_status:
-        start_time = time.time()
-        my_bar = st.progress(0, text="progress text")
         try:
-            for res in ollama.pull(newmodel_name, stream=True):
-                logging.info(res)
-                if 'total' in res and 'completed' in res:
-                    total = res['total']
-                    completed = res['completed']
-                    total_in_mib = total / 1024 / 1024
-                    completed_in_mib = completed / 1024 / 1024
-                    percent = completed / total
-                    my_bar.progress(percent, text=f"Downloading ({completed_in_mib:.1f} MiB / {total_in_mib:.1f} MiB)")
-                else:
-                    my_bar.progress(100, text=f"{res['status']}")
-        except ollama.ResponseError as e:
-            # Handle ResponseError specifically
-            logging.error(f"A ResponseError occurred: {e}")
-            st.error(f"It looks like \"**`{newmodel_name}`**\" is not the right name.", icon="🚨")
-            # You might want to log the error or retry the operation
+            my_bar = st.progress(0, text="Initializing download...")
+            # Download model using vLLM manager
+            # Since HuggingFace download doesn't provide progress, we'll update based on steps
+            my_bar.progress(25, text="Downloading model files...")
+            vllm_manager.download_model(newmodel_name)
+            my_bar.progress(100, text="Download completed!")
+            st.success(f"Successfully downloaded model: {newmodel_name}")
+
         except Exception as e:
-            # Handle any other exceptions
-            logging.error(f"An unexpected error occurred: {e}")
-            st.error(f"Some other error happend : {e}", icon="🚨")
+            logging.error(f"An error occurred: {e}")
+            st.error(f"Error downloading model: {str(e)}", icon="🚨")
+
 
 st.subheader("Download a New Model")
-# st.markdown("⚠ Check the model name on [Ollama Library](https://ollama.com/library) page.")
-st.info("Check the model name on [Ollama Library](https://ollama.com/library) page.", icon=":material/info:")
+st.info(
+    "Enter the Hugging Face model name (e.g., 'meta-llama/Llama-2-7b-chat-hf'). "
+    "Check available models on [Hugging Face Hub](https://huggingface.co/models).",
+    icon="ℹ️",
+)
 
 model_name = st.text_input(
     "Name of model to download",
-    key='my_newmodel_name', 
-    on_change=on_newmodel_name_change
+    key="my_newmodel_name",
+    on_change=on_newmodel_name_change,
 )
 st.button(
-    "Download Model", 
-    key='my_button', 
-    on_click=download_model, 
-    disabled=st.session_state.get("download_model_disabled", True)
+    "Download Model",
+    key="my_button",
+    on_click=download_model,
+    disabled=st.session_state.get("download_model_disabled", True),
 )
 container_status = st.container()
 
