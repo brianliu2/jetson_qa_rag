@@ -168,9 +168,9 @@ if [ "$flag_install_docker" = true ]; then
 fi
 
 if id -nG "$USER" | grep -qw docker; then
-    log "[INFO] User '$USER' is already in 'docker' group."
+    log "[INFO] User '$USER' is already in 'docker' group. Skipping group addition."
 else
-    log "[WARN] User '$USER' is not in 'docker' group. Going to register in the group."
+    log "[INFO] Adding user '$USER' to 'docker' group..."
 
 	# Execute newgrp command at last as it resets the bash session
 	log "[WARN] newgrp command is executed, and your bash session is reset."
