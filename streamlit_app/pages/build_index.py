@@ -1,13 +1,13 @@
 import ollama
-import openai
 import streamlit as st
 import pandas as pd
 
-from llama_index.core import VectorStoreIndex, Settings, SimpleDirectoryReader
+from llama_index.core import VectorStoreIndex, Settings, SimpleDirectoryReader, ServiceContext
+from llama_index.vector_stores.faiss import FaissVectorStore
+import faiss
 from llama_index.llms.ollama import Ollama
 from llama_index.core.memory import ChatMemoryBuffer
 from llama_index.embeddings.ollama import OllamaEmbedding
-from llama_index.embeddings.openai import OpenAIEmbedding
 from llama_index.core import SummaryIndex
 from llama_index.readers.web import SimpleWebPageReader
 from llama_index.core.readers.base import BaseReader
@@ -17,6 +17,7 @@ from typing import Dict, Type
 from PIL import Image
 import time
 import os
+import numpy as np
 
 import logging
 import sys
@@ -28,6 +29,10 @@ sys.path.insert(0, parent_dir)
 import utils.func 
 import utils.constants as const
 
+# Set default embedding model to Ollama
+Settings.embed_model = OllamaEmbedding(model_name="mxbai-embed-large:latest")
+logging.info(f"Default embedding model set to: {Settings.embed_model}")
+
 class ExcelReader(BaseReader):
     def load_data(self, file_path: str, extra_info: dict = None):
         data = pd.read_excel(file_path).to_string()
@@ -38,16 +43,27 @@ DEFAULT_FILE_READER_CLS: Dict[str, Type[BaseReader]] = {
     ".xls": ExcelReader,
 }
 
+def load_preexisting_embeddings(directory):
+    """Load pre-existing embeddings from CSV files in the specified directory."""
+    embeddings = []
+    texts = []
+    for file in os.listdir(directory):
+        if file.endswith('.csv'):
+            df = pd.read_csv(os.path.join(directory, file))
+            if 'text' in df.columns and 'embedding' in df.columns:
+                texts.extend(df['text'].tolist())
+                # Convert string representation of embeddings back to numpy arrays
+                file_embeddings = [np.fromstring(emb.strip('[]'), sep=',') for emb in df['embedding']]
+                embeddings.extend(file_embeddings)
+    
+    return texts, embeddings
+
 def on_settings_change():
     logging.info(" --- settings updated ---")
 
-def on_local_model_change():
-    Settings.embed_model = OllamaEmbedding(model_name=st.session_state.my_local_model)
-    logging.info(f" --- Settings.embed_model=OllamaEmbedding(model_name={st.session_state.my_local_model}) ---")
-
-def on_openai_model_change():
-    Settings.embed_model = OpenAIEmbedding(model_name=st.session_state.my_openai_model, dimensions=1024)
-    logging.info(f" --- Settings.embed_model=OpenAIEmbedding(model_name={st.session_state.my_openai_model}) ---")
+def on_model_change():
+    Settings.embed_model = OllamaEmbedding(model_name=st.session_state.my_model)
+    logging.info(f" --- Settings.embed_model=OllamaEmbedding(model_name={st.session_state.my_model}) ---")
 
 def on_indexname_change():
     name = st.session_state.my_indexname
@@ -121,35 +137,90 @@ def index_data():
             logging.info(f"Setting Embedding model... {Settings.embed_model}")
             docs = []
             web_docs = []
+            
+            # Check if we're using pre-existing embeddings from Documents/embeddings
+            using_preexisting_embeddings = st.session_state.docspath == "Documents/embeddings"
+            dimension = 3072 if using_preexisting_embeddings else 1024  # 3072 for OpenAI pre-computed embeddings, 1024 for local
+            
+            # Create service context based on whether we're using pre-existing embeddings
+            service_context = ServiceContext.from_defaults(embed_model=None) if using_preexisting_embeddings else None
+            
             if st.session_state.num_of_files_to_read != 0:
-                reader = SimpleDirectoryReader(input_dir=st.session_state.docspath, recursive=True)
-                st.write(    "Loading local documents...")
-                logging.info("Loading local documents...")
-                docs = reader.load_data()
-                st.write(    f"{len(docs)} local documents loaded.")
-                logging.info(f"{len(docs)} local documents loaded.")
-                st.write(    "Building Index from local docs (using GPU)...")
-                logging.info("Building Index from local docs (using GPU)...")
-                index = VectorStoreIndex.from_documents(docs)
+                if using_preexisting_embeddings:
+                    st.write("Loading pre-existing embeddings from CSV files...")
+                    logging.info("Loading pre-existing embeddings from CSV files...")
+                    texts, embeddings = load_preexisting_embeddings(st.session_state.docspath)
+                    st.write(f"{len(texts)} documents with pre-existing embeddings loaded.")
+                    logging.info(f"{len(texts)} documents with pre-existing embeddings loaded.")
+                    
+                    # Initialize FAISS index with OpenAI dimension
+                    faiss_index = faiss.IndexFlatIP(dimension)
+                    # Add pre-existing embeddings to FAISS
+                    faiss_index.add(np.array(embeddings))
+                    vector_store = FaissVectorStore(faiss_index=faiss_index)
+                    
+                    # Create documents from texts
+                    docs = [Document(text=text) for text in texts]
+                    
+                    # Create index with pre-existing embeddings
+                    index = VectorStoreIndex.from_documents(
+                        docs,
+                        vector_store=vector_store,
+                        service_context=service_context
+                    )
+                else:
+                    reader = SimpleDirectoryReader(input_dir=st.session_state.docspath, recursive=True)
+                    st.write("Loading local documents...")
+                    logging.info("Loading local documents...")
+                    docs = reader.load_data()
+                    st.write(f"{len(docs)} local documents loaded.")
+                    logging.info(f"{len(docs)} local documents loaded.")
+                    st.write("Building Index from local docs using FAISS...")
+                    logging.info("Building Index from local docs using FAISS...")
+                    
+                    # Initialize FAISS index with local embedding dimension
+                    faiss_index = faiss.IndexFlatIP(dimension)
+                    vector_store = FaissVectorStore(faiss_index=faiss_index)
+                    
+                    # Create index with FAISS vector store
+                    index = VectorStoreIndex.from_documents(
+                        docs,
+                        vector_store=vector_store,
+                        service_context=service_context
+                    )
+                    
             if st.session_state.num_of_urls_to_read != 0:
-                st.write(    "Loading web documents...")
+                st.write("Loading web documents...")
                 logging.info("Loading web documents...")
                 web_docs = SimpleWebPageReader(html_to_text=True).load_data(st.session_state.urllist)
-                st.write(    f"{len(web_docs)} web documents loaded.")
+                st.write(f"{len(web_docs)} web documents loaded.")
                 logging.info(f"{len(web_docs)} web documents loaded.")
                 logging.info(f"len(web_docs): {len(web_docs)}")
-                logging.info(f"web_docs[0]  : {web_docs[0]}")
-                st.write(    "Building Index from web docs (using GPU)...")
-                logging.info("Building Index from web docs (using GPU)...")
+                logging.info(f"web_docs[0]: {web_docs[0]}")
+                st.write("Building Index from web docs using FAISS...")
+                logging.info("Building Index from web docs using FAISS...")
+                
                 if 'index' not in locals():
-                    index = VectorStoreIndex.from_documents(web_docs)
+                    # Initialize FAISS index for web docs with appropriate dimension
+                    faiss_index = faiss.IndexFlatIP(dimension)
+                    vector_store = FaissVectorStore(faiss_index=faiss_index)
+                    index = VectorStoreIndex.from_documents(
+                        web_docs,
+                        vector_store=vector_store,
+                        service_context=service_context
+                    )
                 else:
+                    # If we're using pre-existing embeddings, we can't add new documents
+                    if using_preexisting_embeddings:
+                        st.error("Cannot add web documents when using pre-existing embeddings. Please create a new index for web documents.")
+                        return
                     for d in web_docs:
-                        index.insert(document = d)
-            st.write(    "Saving the built index to disk...")
+                        index.insert(document=d)
+                        
+            st.write("Saving the built index to disk...")
             logging.info("Saving the built index to disk...")
             index.storage_context.persist(persist_dir=st.session_state.index_path_to_be_created)
-            st.write(    "Indexing done!")
+            st.write("Indexing done!")
             logging.info("Indexing done!")
         end_time = time.time()
         elapsed_time = end_time - start_time
@@ -174,15 +245,16 @@ with st.sidebar:
     st.info('Build your own custom Index based on your local/online documents.')
 
     st.subheader("Embedding Model")
-    t1,t2 = st.tabs(['Local','OpenAI'])
-    with t1:
-        models = [model["name"] for model in ollama.list()["models"]]
-        st.selectbox("Choose local embedding model", models, index=models.index("mxbai-embed-large:latest"), key='my_local_model', on_change=on_local_model_change)
-    with t2:
-        openai.api_key = st.text_input("OpenAI API Key", key="chatbot_api_key", type="password")
-        os.environ["OPENAI_API_KEY"] = openai.api_key
-        logging.info(f"> openai.api_key = {openai.api_key}")
-        st.selectbox("Choose OpenAI embedding model", ["-- Choose from below --", "text-embedding-3-large", "text-embedding-3-small", "text-embedding-ada-002"], index=0, key='my_openai_model', on_change=on_openai_model_change)
+    response = ollama.list()
+    models = []
+    for model in response['models']:
+        if 'name' in model:
+            models.append(model['name'])
+        else:
+            models.append(model['model'])  # newer ollama versions use 'model' instead of 'name'
+
+    st.selectbox("Choose embedding model", models, index=models.index("mxbai-embed-large:latest"), key='my_model', on_change=on_model_change)
+    
     use_customized_chunk = st.toggle("Customize chunk parameters", value=False)
     if use_customized_chunk:
         Settings.chunk_size = st.slider("Chunk size", 100, 5000, 1024, key='my_chunk_size', on_change=on_settings_change)

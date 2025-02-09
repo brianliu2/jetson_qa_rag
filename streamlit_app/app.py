@@ -1,3 +1,4 @@
+import os
 import ollama
 import openai
 import streamlit as st
@@ -7,6 +8,8 @@ from llama_index.core import load_index_from_storage, StorageContext
 from llama_index.core.storage.docstore import SimpleDocumentStore
 from llama_index.core.vector_stores import SimpleVectorStore
 from llama_index.core.storage.index_store import SimpleIndexStore
+from llama_index.vector_stores.faiss import FaissVectorStore
+import faiss
 from llama_index.llms.ollama import Ollama
 from llama_index.core.memory import ChatMemoryBuffer
 from llama_index.embeddings.ollama import OllamaEmbedding
@@ -25,16 +28,29 @@ import utils.constants as const
 # App title
 st.set_page_config(page_title="Xilinx Manual QA System", menu_items=None)
 
-AVATAR_AI   = Image.open('images/jetson-soc.png')
-AVATAR_USER = Image.open('images/user-purple.png')
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+IMG_ROOT_PATH = os.path.join(PROJECT_ROOT, 'streamlit_app', 'images')
+AVATAR_AI   = Image.open(IMG_ROOT_PATH + '/jetson-soc.png')
+AVATAR_USER = Image.open(IMG_ROOT_PATH + '/user-purple.png')
 
 def find_saved_indexes():
     return utils.func.list_directories(const.INDEX_ROOT_PATH)
 
 def load_index(index_name):
-    Settings.embed_model = OllamaEmbedding("mxbai-embed-large:latest") ##TODO
+    Settings.embed_model = OpenAIEmbedding(model_name="text-embedding-3-large", dimensions=3072)
     dir = f"{const.INDEX_ROOT_PATH}/{index_name}"
-    storage_context = StorageContext.from_defaults(persist_dir=dir)
+    
+    # Initialize FAISS vector store
+    dimension = 3072  # text-embedding-3-large dimension
+    faiss_index = faiss.IndexFlatIP(dimension)
+    vector_store = FaissVectorStore(faiss_index=faiss_index)
+    
+    # Create storage context with FAISS vector store
+    storage_context = StorageContext.from_defaults(
+        persist_dir=dir,
+        vector_store=vector_store
+    )
+    
     index = load_index_from_storage(storage_context)
     return index
 
