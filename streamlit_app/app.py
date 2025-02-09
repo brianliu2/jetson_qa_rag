@@ -25,8 +25,8 @@ import utils.constants as const
 # App title
 st.set_page_config(page_title="Xilinx Manual QA System", menu_items=None)
 
-AVATAR_AI   = Image.open('./images/jetson-soc.png')
-AVATAR_USER = Image.open('./images/user-purple.png')
+AVATAR_AI   = Image.open('images/jetson-soc.png')
+AVATAR_USER = Image.open('images/user-purple.png')
 
 def find_saved_indexes():
     return utils.func.list_directories(const.INDEX_ROOT_PATH)
@@ -39,17 +39,20 @@ def load_index(index_name):
     return index
 
 
-models = [model["name"] for model in ollama.list()["models"]]
+# Get available models
+response = ollama.list()
+models = []
+for model in response['models']:
+    if 'name' in model:
+        models.append(model['name'])
+    else:
+        models.append(model['model'])  # newer ollama versions use 'model' instead of 'name'
 
-if 'llama3:latest' not in models:
-    with st.spinner('Downloaing llama3 model ...'):
-        ollama.pull('llama3')
-        logging.info(" ### Downloaing llama3 completed.")
-
-if 'mxbai-embed-large:latest' not in models:
-    with st.spinner('Downloaing mxbai-embed-large model ...'):
+# Check for embedding model
+if not models or 'mxbai-embed-large:latest' not in models:
+    with st.spinner('Downloading mxbai-embed-large model ...'):
         ollama.pull('mxbai-embed-large')
-        logging.info(" ### Downloaing mxbai-embed-large completed.")
+        logging.info(" ### Downloading mxbai-embed-large completed.")
 
 old_index_name = ''
 # Side bar
@@ -62,10 +65,35 @@ with st.sidebar:
     st.title(":airplane: Jetson Copilot")
     st.subheader('Your local AI assistant on Jetson', divider='rainbow')
 
-    models = [model["name"] for model in ollama.list()["models"]]
+    response = ollama.list()
+    models = []
+    for model in response['models']:
+        if 'name' in model:
+            models.append(model['name'])
+        else:
+            models.append(model['model'])  # newer ollama versions use 'model' instead of 'name'
+    # Find smallest model by parameter size
+    smallest_model = None
+    smallest_size = float('inf')
+    model_list = ollama.list()["models"]
+    for model_info in model_list:
+        try:
+            # Try to get parameter size, default to infinity if not available
+            details = model_info.get('details', {})
+            param_size_str = details.get('parameter_size', '').rstrip('B')
+            if param_size_str:
+                param_size = float(param_size_str)
+                if param_size < smallest_size:
+                    smallest_size = param_size
+                    # Handle both old ('name') and new ('model') API formats
+                    smallest_model = model_info.get('name') or model_info.get('model')
+        except (ValueError, KeyError, AttributeError):
+            continue  # Skip models where we can't determine size
+    
     col3, col4 = st.columns([5,1])
     with col3:
-        st.session_state["model"] = st.selectbox("Choose your LLM", models, index=models.index("llama3:latest"))
+        default_model = smallest_model if smallest_model else models[0]
+        st.session_state["model"] = st.selectbox("Choose your LLM", models, index=models.index(default_model))
         logging.info(f"> st.session_state[\"model\"] = {st.session_state.model}")
     with col4:
         st.markdown('')
