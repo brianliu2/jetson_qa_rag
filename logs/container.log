@@ -1,0 +1,64 @@
+
+Starting ollama server
+
+Couldn't find '/root/.ollama/id_ed25519'. Generating new private key.
+Your new public key is: 
+
+ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBmI8Gt7UVmUYXpHLkx6uA90/sQaCpaBY3FF6OgReNmj
+
+Error: listen tcp 0.0.0.0:11434: bind: address already in use
+
+OLLAMA_MODELS /data/models/ollama/models
+OLLAMA_LOGS   /data/logs/ollama.log
+
+ollama server is now started, and you can run commands here like 'ollama run llama3'
+
+
+Collecting usage statistics. To deactivate, set browser.gatherUsageStats to false.
+
+
+  You can now view your Streamlit app in your browser.
+
+  Local URL: http://localhost:8501
+  Network URL: http://192.168.1.210:8501
+  External URL: http://86.177.161.250:8501
+
+INFO:httpx:HTTP Request: GET http://0.0.0.0:11434/api/tags "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: GET http://0.0.0.0:11434/api/tags "HTTP/1.1 200 OK"
+INFO:root:> st.session_state["model"] = llama3:latest
+INFO:httpx:HTTP Request: GET http://0.0.0.0:11434/api/tags "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: GET http://0.0.0.0:11434/api/tags "HTTP/1.1 200 OK"
+INFO:root:> st.session_state["model"] = qwen2.5:3b
+INFO:httpx:HTTP Request: GET http://0.0.0.0:11434/api/tags "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: GET http://0.0.0.0:11434/api/tags "HTTP/1.1 200 OK"
+INFO:root:> st.session_state["model"] = qwen2.5:3b
+INFO:root:>>> Just LLM (no RAG):
+INFO:httpx:HTTP Request: POST http://0.0.0.0:11434/api/chat "HTTP/1.1 200 OK"
+
+Starting ollama server
+
+Couldn't find '/root/.ollama/id_ed25519'. Generating new private key.
+Your new public key is: 
+
+ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMLyQ7HYoRVzJbjiBmH4c54Z2XbhuPdXoZsktFJ941eC
+
+Error: listen tcp 0.0.0.0:11434: bind: address already in use
+
+OLLAMA_MODELS /data/models/ollama/models
+OLLAMA_LOGS   /data/logs/ollama.log
+
+ollama server is now started, and you can run commands here like 'ollama run llama3'
+
+
+Collecting usage statistics. To deactivate, set browser.gatherUsageStats to false.
+
+
+  You can now view your Streamlit app in your browser.
+
+  Local URL: http://localhost:8501
+  Network URL: http://192.168.1.210:8501
+  External URL: http://86.177.161.250:8501
+
+INFO:httpx:HTTP Request: GET http://0.0.0.0:11434/api/tags "HTTP/1.1 200 OK"
+INFO:httpx:HTTP Request: GET http://0.0.0.0:11434/api/tags "HTTP/1.1 200 OK"
+INFO:root:> st.session_state["model"] = llama3:latest
