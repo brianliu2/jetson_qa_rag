@@ -19,38 +19,43 @@ import time
 
 import logging
 import sys
+
 logging.basicConfig(stream=sys.stdout, level=logging.INFO)
 # logging.getLogger().addHandler(logging.StreamHandler(stream=sys.stdout))
 
-import utils.func 
+import utils.func
 import utils.constants as const
 
 # App title
 st.set_page_config(page_title="Xilinx Manual QA System", menu_items=None)
 
-PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-IMG_ROOT_PATH = os.path.join(PROJECT_ROOT, 'streamlit_app', 'images')
-AVATAR_AI   = Image.open(IMG_ROOT_PATH + '/jetson-soc.png')
-AVATAR_USER = Image.open(IMG_ROOT_PATH + '/user-purple.png')
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+IMG_ROOT_PATH = os.path.join(PROJECT_ROOT, "streamlit_app", "images")
+AVATAR_AI = Image.open(IMG_ROOT_PATH + "/jetson-soc.png")
+AVATAR_USER = Image.open(IMG_ROOT_PATH + "/user-purple.png")
+
 
 def find_saved_indexes():
-    return utils.func.list_directories(const.INDEX_ROOT_PATH)
+    # return utils.func.list_directories(const.INDEX_ROOT_PATH)
+    return utils.func.list_files(const.INDEX_ROOT_PATH)
+
 
 def load_index(index_name):
-    Settings.embed_model = OpenAIEmbedding(model_name="text-embedding-3-large", dimensions=3072)
+    Settings.embed_model = OpenAIEmbedding(
+        model_name="text-embedding-3-large", dimensions=3072
+    )
     dir = f"{const.INDEX_ROOT_PATH}/{index_name}"
-    
+
     # Initialize FAISS vector store
     dimension = 3072  # text-embedding-3-large dimension
     faiss_index = faiss.IndexFlatIP(dimension)
     vector_store = FaissVectorStore(faiss_index=faiss_index)
-    
+
     # Create storage context with FAISS vector store
     storage_context = StorageContext.from_defaults(
-        persist_dir=dir,
-        vector_store=vector_store
+        persist_dir=dir, vector_store=vector_store
     )
-    
+
     index = load_index_from_storage(storage_context)
     return index
 
@@ -58,61 +63,67 @@ def load_index(index_name):
 # Get available models
 response = ollama.list()
 models = []
-for model in response['models']:
-    if 'name' in model:
-        models.append(model['name'])
+for model in response["models"]:
+    if "name" in model:
+        models.append(model["name"])
     else:
-        models.append(model['model'])  # newer ollama versions use 'model' instead of 'name'
+        models.append(
+            model["model"]
+        )  # newer ollama versions use 'model' instead of 'name'
 
 # Check for embedding model
-if not models or 'mxbai-embed-large:latest' not in models:
-    with st.spinner('Downloading mxbai-embed-large model ...'):
-        ollama.pull('mxbai-embed-large')
+if not models or "mxbai-embed-large:latest" not in models:
+    with st.spinner("Downloading mxbai-embed-large model ..."):
+        ollama.pull("mxbai-embed-large")
         logging.info(" ### Downloading mxbai-embed-large completed.")
 
-old_index_name = ''
+old_index_name = ""
 # Side bar
-with st.sidebar:        
+with st.sidebar:
     # # Add css to make text smaller
     # st.markdown(
     #     """<style>textarea { font-size: 0.8rem !important; } </style>""",
     #     unsafe_allow_html=True,
     # )
     st.title(":airplane: Jetson Copilot")
-    st.subheader('Your local AI assistant on Jetson', divider='rainbow')
+    st.subheader("Your local AI assistant on Jetson", divider="rainbow")
 
     response = ollama.list()
     models = []
-    for model in response['models']:
-        if 'name' in model:
-            models.append(model['name'])
+    for model in response["models"]:
+        if "name" in model:
+            models.append(model["name"])
         else:
-            models.append(model['model'])  # newer ollama versions use 'model' instead of 'name'
+            models.append(
+                model["model"]
+            )  # newer ollama versions use 'model' instead of 'name'
     # Find smallest model by parameter size
     smallest_model = None
-    smallest_size = float('inf')
+    smallest_size = float("inf")
     model_list = ollama.list()["models"]
     for model_info in model_list:
         try:
             # Try to get parameter size, default to infinity if not available
-            details = model_info.get('details', {})
-            param_size_str = details.get('parameter_size', '').rstrip('B')
+            details = model_info.get("details", {})
+            param_size_str = details.get("parameter_size", "").rstrip("B")
             if param_size_str:
                 param_size = float(param_size_str)
                 if param_size < smallest_size:
                     smallest_size = param_size
                     # Handle both old ('name') and new ('model') API formats
-                    smallest_model = model_info.get('name') or model_info.get('model')
+                    smallest_model = model_info.get("name") or model_info.get("model")
         except (ValueError, KeyError, AttributeError):
             continue  # Skip models where we can't determine size
-    
-    col3, col4 = st.columns([5,1])
+
+    col3, col4 = st.columns([5, 1])
     with col3:
         default_model = smallest_model if smallest_model else models[0]
-        st.session_state["model"] = st.selectbox("Choose your LLM", models, index=models.index(default_model))
-        logging.info(f"> st.session_state[\"model\"] = {st.session_state.model}")
+        st.session_state["model"] = st.selectbox(
+            "Choose your LLM", models, index=models.index(default_model)
+        )
+        logging.info(f'> st.session_state["model"] = {st.session_state.model}')
     with col4:
-        st.markdown('')
+        st.markdown("")
         # st.button('➕', key='btn_add_llm')
     st.page_link("pages/download_model.py", label=" Download a new LLM", icon="➕")
     Settings.llm = Ollama(model=st.session_state["model"], request_timeout=300.0)
@@ -120,46 +131,58 @@ with st.sidebar:
     use_index = st.toggle("Use RAG", value=False)
     if use_index:
         # col1, col2 = st.columns([5,1], vertical_alignment="bottom") ### https://github.com/streamlit/streamlit/issues/3052
-        col1, col2 = st.columns([5,1])
+        col1, col2 = st.columns([5, 1])
         saved_index_list = find_saved_indexes()
         with col1:
-            index = next((i for i, item in enumerate(saved_index_list) if item.startswith('_')), None)
+            index = next(
+                (i for i, item in enumerate(saved_index_list) if item.startswith("_")),
+                None,
+            )
             index_name = st.selectbox("Index", saved_index_list, index)
             logging.info(f"> index_name = {index_name}")
         with col2:
-            st.markdown('')
+            st.markdown("")
             # st.link_button('➕', url='pages/build_index.py')
         if old_index_name != index_name:
             old_index_name = index_name
             logging.info(f"> old_index_name = {old_index_name}")
             if index_name != None:
-                with st.spinner('Loading Index...'):
+                with st.spinner("Loading Index..."):
                     st.session_state.index = load_index(index_name)
                     logging.info(f" ### Loading Index '{index_name}' completed.")
         st.page_link("pages/build_index.py", label=" Build a new index", icon="➕")
 
         if index_name != None:
-            context_prompt = st.text_area("System prompt with context", 
-"""You are a chatbot, able to have normal interactions, as well as talk about NVIDIA Jetson embedded AI computer.
+            context_prompt = st.text_area(
+                "System prompt with context",
+                """You are a chatbot, able to have normal interactions, as well as talk about NVIDIA Jetson embedded AI computer.
 Here are the relevant documents for the context:\n
 {context_str}
-\nInstruction: Use the previous chat history, or the context above, to interact and help the user.""", height=240)
+\nInstruction: Use the previous chat history, or the context above, to interact and help the user.""",
+                height=240,
+            )
             logging.info(f"> context_prompt = {context_prompt}")
 
             # init models
             st.session_state.chat_engine = st.session_state.index.as_chat_engine(
-                chat_mode="context", 
+                chat_mode="context",
                 streaming=True,
                 memory=ChatMemoryBuffer.from_defaults(token_limit=4096),
                 llm=Settings.llm,
                 context_prompt=(context_prompt),
-                verbose=True)
+                verbose=True,
+            )
 
 # initialize history
 if "messages" not in st.session_state.keys():
     st.session_state.messages = [
-        {"role": "assistant", "content": "Ask me any question about NVIDIA Jetson embedded AI computer!", "avatar": AVATAR_AI}
+        {
+            "role": "assistant",
+            "content": "Ask me any question about NVIDIA Jetson embedded AI computer!",
+            "avatar": AVATAR_AI,
+        }
     ]
+
 
 def model_res_generator(prompt=""):
     if use_index:
@@ -169,7 +192,10 @@ def model_res_generator(prompt=""):
             yield chunk
     else:
         logging.info(f">>> Just LLM (no RAG):")
-        messages_only_role_and_content = [{"role": message["role"], "content": message["content"]} for message in st.session_state.messages]
+        messages_only_role_and_content = [
+            {"role": message["role"], "content": message["content"]}
+            for message in st.session_state.messages
+        ]
 
         stream = ollama.chat(
             model=st.session_state["model"],
@@ -179,6 +205,7 @@ def model_res_generator(prompt=""):
         for chunk in stream:
             yield chunk["message"]["content"]
 
+
 # Display chat messages from history on app rerun
 for message in st.session_state.messages:
     with st.chat_message(message["role"], avatar=message["avatar"]):
@@ -186,7 +213,9 @@ for message in st.session_state.messages:
 
 if prompt := st.chat_input("Enter prompt here.."):
     # add latest message to history in format {role, content}
-    st.session_state.messages.append({"role": "user", "content": prompt, "avatar": AVATAR_USER})
+    st.session_state.messages.append(
+        {"role": "user", "content": prompt, "avatar": AVATAR_USER}
+    )
 
     with st.chat_message("user", avatar=AVATAR_USER):
         st.markdown(prompt)
@@ -195,4 +224,6 @@ if prompt := st.chat_input("Enter prompt here.."):
         with st.spinner("Thinking..."):
             time.sleep(1)
             message = st.write_stream(model_res_generator(prompt))
-            st.session_state.messages.append({"role": "assistant", "content": message, "avatar": AVATAR_AI})
+            st.session_state.messages.append(
+                {"role": "assistant", "content": message, "avatar": AVATAR_AI}
+            )

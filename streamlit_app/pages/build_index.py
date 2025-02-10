@@ -2,7 +2,12 @@ import ollama
 import streamlit as st
 import pandas as pd
 
-from llama_index.core import VectorStoreIndex, Settings, SimpleDirectoryReader, ServiceContext
+from llama_index.core import (
+    VectorStoreIndex,
+    Settings,
+    SimpleDirectoryReader,
+    ServiceContext,
+)
 from llama_index.vector_stores.faiss import FaissVectorStore
 import faiss
 from llama_index.llms.ollama import Ollama
@@ -21,77 +26,95 @@ import numpy as np
 
 import logging
 import sys
+
 logging.basicConfig(stream=sys.stdout, level=logging.INFO)
 # logging.getLogger().addHandler(logging.StreamHandler(stream=sys.stdout))
 
-parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, parent_dir)
-import utils.func 
+import utils.func
 import utils.constants as const
+from utils.build_faiss_index import build_faiss_index
 
 # Set default embedding model to Ollama
 Settings.embed_model = OllamaEmbedding(model_name="mxbai-embed-large:latest")
 logging.info(f"Default embedding model set to: {Settings.embed_model}")
 
+
 class ExcelReader(BaseReader):
     def load_data(self, file_path: str, extra_info: dict = None):
         data = pd.read_excel(file_path).to_string()
         return [Document(text=data, metadata=extra_info)]
-    
+
+
 DEFAULT_FILE_READER_CLS: Dict[str, Type[BaseReader]] = {
     ".xlsx": ExcelReader,
     ".xls": ExcelReader,
 }
+
 
 def load_preexisting_embeddings(directory):
     """Load pre-existing embeddings from CSV files in the specified directory."""
     embeddings = []
     texts = []
     for file in os.listdir(directory):
-        if file.endswith('.csv'):
+        if file.endswith(".csv"):
             df = pd.read_csv(os.path.join(directory, file))
-            if 'text' in df.columns and 'embedding' in df.columns:
-                texts.extend(df['text'].tolist())
+            if "text" in df.columns and "embedding" in df.columns:
+                texts.extend(df["text"].tolist())
                 # Convert string representation of embeddings back to numpy arrays
-                file_embeddings = [np.fromstring(emb.strip('[]'), sep=',') for emb in df['embedding']]
+                file_embeddings = [
+                    np.fromstring(emb.strip("[]"), sep=",") for emb in df["embedding"]
+                ]
                 embeddings.extend(file_embeddings)
-    
+
     return texts, embeddings
+
 
 def on_settings_change():
     logging.info(" --- settings updated ---")
 
+
 def on_model_change():
     Settings.embed_model = OllamaEmbedding(model_name=st.session_state.my_model)
-    logging.info(f" --- Settings.embed_model=OllamaEmbedding(model_name={st.session_state.my_model}) ---")
+    logging.info(
+        f" --- Settings.embed_model=OllamaEmbedding(model_name={st.session_state.my_model}) ---"
+    )
+
 
 def on_indexname_change():
     name = st.session_state.my_indexname
     name = utils.func.make_valid_directory_name(name)
     if os.path.exists(os.path.join(const.INDEX_ROOT_PATH, name)):
         with container_name:
-            st.error('The title name is not valid', icon="🚨")
+            st.error("The title name is not valid", icon="🚨")
     else:
         st.session_state.index_path_to_be_created = f"{const.INDEX_ROOT_PATH}/{name}"
         st.session_state.index_name = f"{name}"
         with container_name:
-            st.markdown(f"`{st.session_state.index_path_to_be_created}` will be created")
+            st.markdown(
+                f"`{st.session_state.index_path_to_be_created}` will be created"
+            )
+
 
 def on_docspath_change():
     logging.info("### on_docspath_change")
-    st.session_state['docpath_untouched'] = False
+    st.session_state["docpath_untouched"] = False
     dir = st.session_state.docspath
     with container_docs:
-        with st.spinner('Checking files under the directory...'):
-            files = utils.func.get_files_with_extensions(dir, const.SUPPORTED_FILE_TYPES)
+        with st.spinner("Checking files under the directory..."):
+            files = utils.func.get_files_with_extensions(
+                dir, const.SUPPORTED_FILE_TYPES
+            )
             total_docs_size = utils.func.get_total_size_mib(dir)
             md = f"**`{len(files)}`** files found! (Total file size: **`{total_docs_size:,.2f}`** MiB)"
             logging.info(f"{len(files)} files found!")
-            df = pd.DataFrame(files, columns=['Filename', 'Size (KiB)'])
+            df = pd.DataFrame(files, columns=["Filename", "Size (KiB)"])
             st.markdown(md)
             st.session_state.num_of_files_to_read = len(files)
             if len(files) != 0:
-                st.dataframe(df.style.format({'Size (KiB)' : "{:,.1f}"}))
+                st.dataframe(df.style.format({"Size (KiB)": "{:,.1f}"}))
+
 
 def on_urllist_change():
     urls = st.session_state.my_urllist
@@ -105,6 +128,7 @@ def on_urllist_change():
         with container_urls:
             st.error("Invalid URL(s) contained.", icon="🚨")
         st.session_state.ready_to_index = False
+
 
 def check_if_ready_to_index():
     logging.info("### check_if_ready_to_index()")
@@ -126,8 +150,10 @@ def check_if_ready_to_index():
         logging.info("### check_if_ready_to_index() ---> Ready")
         st.session_state.index_button_disabled = False
 
+
 # App title
 st.set_page_config(page_title="Jetson Copilot - Build Index", menu_items=None)
+
 
 ### Building Index with Embedding Model
 def index_data():
@@ -137,39 +163,55 @@ def index_data():
             logging.info(f"Setting Embedding model... {Settings.embed_model}")
             docs = []
             web_docs = []
-            
+
             # Check if we're using pre-existing embeddings from Documents/embeddings
-            using_preexisting_embeddings = st.session_state.docspath == "Documents/embeddings"
-            dimension = 3072 if using_preexisting_embeddings else 1024  # 3072 for OpenAI pre-computed embeddings, 1024 for local
-            
+            using_preexisting_embeddings = (
+                st.session_state.docspath == "Documents/embeddings"
+            )
+            dimension = (
+                3072 if using_preexisting_embeddings else 1024
+            )  # 3072 for OpenAI pre-computed embeddings, 1024 for local
+
             # Create service context based on whether we're using pre-existing embeddings
-            service_context = ServiceContext.from_defaults(embed_model=None) if using_preexisting_embeddings else None
-            
+            service_context = (
+                ServiceContext.from_defaults(embed_model=None)
+                if using_preexisting_embeddings
+                else None
+            )
+
             if st.session_state.num_of_files_to_read != 0:
                 if using_preexisting_embeddings:
                     st.write("Loading pre-existing embeddings from CSV files...")
                     logging.info("Loading pre-existing embeddings from CSV files...")
-                    texts, embeddings = load_preexisting_embeddings(st.session_state.docspath)
-                    st.write(f"{len(texts)} documents with pre-existing embeddings loaded.")
-                    logging.info(f"{len(texts)} documents with pre-existing embeddings loaded.")
-                    
+                    texts, embeddings = load_preexisting_embeddings(
+                        st.session_state.docspath
+                    )
+                    st.write(
+                        f"{len(texts)} documents with pre-existing embeddings loaded."
+                    )
+                    logging.info(
+                        f"{len(texts)} documents with pre-existing embeddings loaded."
+                    )
+
                     # Initialize FAISS index with OpenAI dimension
                     faiss_index = faiss.IndexFlatIP(dimension)
                     # Add pre-existing embeddings to FAISS
                     faiss_index.add(np.array(embeddings))
+                    # Store in session state for reuse
+                    st.session_state["faiss_index"] = faiss_index
                     vector_store = FaissVectorStore(faiss_index=faiss_index)
-                    
+
                     # Create documents from texts
                     docs = [Document(text=text) for text in texts]
-                    
+
                     # Create index with pre-existing embeddings
                     index = VectorStoreIndex.from_documents(
-                        docs,
-                        vector_store=vector_store,
-                        service_context=service_context
+                        docs, vector_store=vector_store, service_context=service_context
                     )
                 else:
-                    reader = SimpleDirectoryReader(input_dir=st.session_state.docspath, recursive=True)
+                    reader = SimpleDirectoryReader(
+                        input_dir=st.session_state.docspath, recursive=True
+                    )
                     st.write("Loading local documents...")
                     logging.info("Loading local documents...")
                     docs = reader.load_data()
@@ -177,55 +219,61 @@ def index_data():
                     logging.info(f"{len(docs)} local documents loaded.")
                     st.write("Building Index from local docs using FAISS...")
                     logging.info("Building Index from local docs using FAISS...")
-                    
+
                     # Initialize FAISS index with local embedding dimension
                     faiss_index = faiss.IndexFlatIP(dimension)
                     vector_store = FaissVectorStore(faiss_index=faiss_index)
-                    
+
                     # Create index with FAISS vector store
                     index = VectorStoreIndex.from_documents(
-                        docs,
-                        vector_store=vector_store,
-                        service_context=service_context
+                        docs, vector_store=vector_store, service_context=service_context
                     )
-                    
+
             if st.session_state.num_of_urls_to_read != 0:
                 st.write("Loading web documents...")
                 logging.info("Loading web documents...")
-                web_docs = SimpleWebPageReader(html_to_text=True).load_data(st.session_state.urllist)
+                web_docs = SimpleWebPageReader(html_to_text=True).load_data(
+                    st.session_state.urllist
+                )
                 st.write(f"{len(web_docs)} web documents loaded.")
                 logging.info(f"{len(web_docs)} web documents loaded.")
                 logging.info(f"len(web_docs): {len(web_docs)}")
                 logging.info(f"web_docs[0]: {web_docs[0]}")
                 st.write("Building Index from web docs using FAISS...")
                 logging.info("Building Index from web docs using FAISS...")
-                
-                if 'index' not in locals():
+
+                if "index" not in locals():
                     # Initialize FAISS index for web docs with appropriate dimension
                     faiss_index = faiss.IndexFlatIP(dimension)
                     vector_store = FaissVectorStore(faiss_index=faiss_index)
                     index = VectorStoreIndex.from_documents(
                         web_docs,
                         vector_store=vector_store,
-                        service_context=service_context
+                        service_context=service_context,
                     )
                 else:
                     # If we're using pre-existing embeddings, we can't add new documents
                     if using_preexisting_embeddings:
-                        st.error("Cannot add web documents when using pre-existing embeddings. Please create a new index for web documents.")
+                        st.error(
+                            "Cannot add web documents when using pre-existing embeddings. Please create a new index for web documents."
+                        )
                         return
                     for d in web_docs:
                         index.insert(document=d)
-                        
+
             st.write("Saving the built index to disk...")
             logging.info("Saving the built index to disk...")
-            index.storage_context.persist(persist_dir=st.session_state.index_path_to_be_created)
+            index.storage_context.persist(
+                persist_dir=st.session_state.index_path_to_be_created
+            )
             st.write("Indexing done!")
             logging.info("Indexing done!")
         end_time = time.time()
         elapsed_time = end_time - start_time
-    
-    total_size_mib = utils.func.get_total_size_mib(st.session_state.index_path_to_be_created)
+
+    total_size_mib = utils.func.get_total_size_mib(
+        st.session_state.index_path_to_be_created
+    )
 
     md = f"""
     Index named **"{st.session_state.index_name}"** was built from **`{len(docs)}` local** documents and **`{len(web_docs)}` online** documents!
@@ -239,56 +287,145 @@ def index_data():
         st.markdown(md)
         logging.info(md)
 
+
 # Side bar
 with st.sidebar:
     st.title("Building Index")
-    st.info('Build your own custom Index based on your local/online documents.')
+    st.info("Build your own custom Index based on your local/online documents.")
 
     st.subheader("Embedding Model")
     response = ollama.list()
     models = []
-    for model in response['models']:
-        if 'name' in model:
-            models.append(model['name'])
+    for model in response["models"]:
+        if "name" in model:
+            models.append(model["name"])
         else:
-            models.append(model['model'])  # newer ollama versions use 'model' instead of 'name'
+            models.append(
+                model["model"]
+            )  # newer ollama versions use 'model' instead of 'name'
 
-    st.selectbox("Choose embedding model", models, index=models.index("mxbai-embed-large:latest"), key='my_model', on_change=on_model_change)
-    
+    st.selectbox(
+        "Choose embedding model",
+        models,
+        index=models.index("mxbai-embed-large:latest"),
+        key="my_model",
+        on_change=on_model_change,
+    )
+
     use_customized_chunk = st.toggle("Customize chunk parameters", value=False)
     if use_customized_chunk:
-        Settings.chunk_size = st.slider("Chunk size", 100, 5000, 1024, key='my_chunk_size', on_change=on_settings_change)
-        Settings.chunk_overlap = st.slider("Chunk overlap", 10, 500, 50, key='my_chunk_overlap', on_change=on_settings_change)
+        Settings.chunk_size = st.slider(
+            "Chunk size",
+            100,
+            5000,
+            1024,
+            key="my_chunk_size",
+            on_change=on_settings_change,
+        )
+        Settings.chunk_overlap = st.slider(
+            "Chunk overlap",
+            10,
+            500,
+            50,
+            key="my_chunk_overlap",
+            on_change=on_settings_change,
+        )
         logging.info(f"> Settings.chunk_size    = {Settings.chunk_size}")
         logging.info(f"> Settings.chunk_overlap = {Settings.chunk_overlap}")
 
 st.subheader("Index Name")
-index_name = st.text_input("Enter the name for your new index", key='my_indexname', on_change=on_indexname_change)
+index_name = st.text_input(
+    "Enter the name for your new index",
+    key="my_indexname",
+    on_change=on_indexname_change,
+)
 container_name = st.container()
 
-st.subheader('Local documents')
+st.subheader("Local documents")
 subdirs = utils.func.get_subdirectories(const.DOC_ROOT_PATH)
-st.selectbox("Select the path to the local directory that you had stored your documents", subdirs, key='docspath', on_change=on_docspath_change)
+st.selectbox(
+    "Select the path to the local directory that you had stored your documents",
+    subdirs,
+    key="docspath",
+    on_change=on_docspath_change,
+)
 container_docs = st.container()
-if 'docpath_untouched' not in st.session_state:
-    st.session_state['docpath_untouched'] = True
+if "docpath_untouched" not in st.session_state:
+    st.session_state["docpath_untouched"] = True
     st.session_state.num_of_files_to_read = 0
-if len(subdirs) != 0 and st.session_state['docpath_untouched']:
-    logging.info(f"################ st.session_state['docpath_untouched']: {st.session_state['docpath_untouched']}")
+if len(subdirs) != 0 and st.session_state["docpath_untouched"]:
+    logging.info(
+        f"################ st.session_state['docpath_untouched']: {st.session_state['docpath_untouched']}"
+    )
     on_docspath_change()
 
-st.subheader('Online documents')
-list_urls = st.text_area("List of URLs (one per a line)", key='my_urllist', on_change=on_urllist_change)
+# Preview embeddings if embeddings directory is selected
+# if st.session_state.docspath == "Documents/embeddings":
+if st.session_state.docspath == os.path.join(const.DOC_ROOT_PATH, "embeddings"):
+    parquet_files = [
+        f
+        for f in os.listdir(os.path.join(const.DOC_ROOT_PATH, "embeddings"))
+        if f.endswith(".parquet")
+    ]
+    if parquet_files:
+        selected_file = st.selectbox(
+            "Select a Parquet file to preview embeddings", parquet_files
+        )
+        if selected_file:
+            df = pd.read_parquet(
+                os.path.join(const.DOC_ROOT_PATH, "embeddings", selected_file)
+            )
+            if "Embeddings" in df.columns:
+                st.write("Preview of first 3 rows of embedding column:")
+                st.write(df["Embeddings"].head(3))
+
+                # Build FAISS index and save metadata
+                with st.spinner("Building FAISS index and saving metadata..."):
+                    try:
+                        # Get existing index from session state if available
+                        existing_index = st.session_state.get("faiss_index", None)
+
+                        result = build_faiss_index(
+                            df,
+                            selected_file,
+                            dimension=3072,
+                            existing_index=existing_index,
+                        )
+                        st.success(
+                            f"""
+                        Successfully built index and saved metadata:
+                        - Index saved to: {result['index_path']}
+                        - Metadata saved to: {result['metadata_path']}
+                        - Number of vectors: {result['num_vectors']}
+                        """
+                        )
+                    except Exception as e:
+                        st.error(f"Error building index: {str(e)}")
+            else:
+                st.warning("No 'Embeddings' column found in the selected CSV file.")
+
+st.subheader("Online documents")
+list_urls = st.text_area(
+    "List of URLs (one per a line)", key="my_urllist", on_change=on_urllist_change
+)
 container_urls = st.container()
 
-st.warning("Check the model and its configurations on the sidebar (⬅️) and then hit the button below to build a new Index.", icon="⚠️")
+st.warning(
+    "Check the model and its configurations on the sidebar (⬅️) and then hit the button below to build a new Index.",
+    icon="⚠️",
+)
 
 container_settings = st.container()
 
 check_if_ready_to_index()
 logging.info(f"Setting Embedding model... {Settings.embed_model}")
 
-st.button("Build Index", on_click=index_data, key='my_button', disabled=st.session_state.get("index_button_disabled", True))
+st.button(
+    "Build Index",
+    on_click=index_data,
+    key="my_button",
+    disabled=st.session_state.get("index_button_disabled", True),
+)
 container_status = st.container()
 container_result = st.container()
 
